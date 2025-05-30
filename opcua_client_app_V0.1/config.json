@@ -1,0 +1,50 @@
+{
+  "opcua_endpoint": "opc.tcp://localhost:4840/freeopcua/server/",
+  "nodes": [
+    {
+      "id": "fdd24c7a-6b31-48ae-8c72-34fdfb59a9b4",
+      "name": "Speed",
+      "node_ua_id": "ns=2;i=2",
+      "type": "text",
+      "size": "medium",
+      "groupId": null,
+      "value": null,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "36d54908-3f87-4065-b820-9ef4ee485a97",
+      "name": "Stopper",
+      "node_ua_id": "ns=2;i=3",
+      "type": "switch",
+      "size": "medium",
+      "groupId": null,
+      "value": null,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "groups": [],
+  "layout": {
+    "fdd24c7a-6b31-48ae-8c72-34fdfb59a9b4": {
+      "x": 0,
+      "y": -4.600006103515625,
+      "size": "medium"
+    },
+    "36d54908-3f87-4065-b820-9ef4ee485a97": {
+      "x": 225,
+      "y": -154.60000610351562,
+      "size": "medium"
+    }
+  },
+  "scada_layout": {
+    "fdd24c7a-6b31-48ae-8c72-34fdfb59a9b4": {
+      "x": 20,
+      "y": 20
+    },
+    "36d54908-3f87-4065-b820-9ef4ee485a97": {
+      "x": 140,
+      "y": 20
+    }
+  }
+}

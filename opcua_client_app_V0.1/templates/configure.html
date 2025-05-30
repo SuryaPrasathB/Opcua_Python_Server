@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto p-6 bg-white rounded-xl shadow-lg max-w-md mt-10">
+    <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Configure OPC UA Server</h2>
+    {% if error %}
+        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+            <strong class="font-bold">Error!</strong>
+            <span class="block sm:inline">{{ error }}</span>
+        </div>
+    {% endif %}
+    <form action="/configure" method="POST" class="space-y-6">
+        <div>
+            <label for="opcua_endpoint" class="block text-gray-700 text-sm font-semibold mb-2">OPC UA Server Endpoint:</label>
+            <input type="text" id="opcua_endpoint" name="opcua_endpoint"
+                   class="shadow-sm appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                   placeholder="e.g., opc.tcp://localhost:4840/freeopcua/server/"
+                   value="{{ current_endpoint }}" required>
+            <p class="text-gray-500 text-xs mt-2">Enter the full endpoint URL of your OPC UA server.</p>
+        </div>
+        <button type="submit"
+                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300 ease-in-out transform hover:scale-105">
+            Save Endpoint
+        </button>
+    </form>
+</div>
+{% endblock %}

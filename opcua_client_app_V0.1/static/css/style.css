@@ -1,0 +1,192 @@
+/* Custom CSS for the switch component */
+/* The rest of the styling is handled by Tailwind CSS in the HTML */
+
+.card-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    padding: 0.5rem; /* Reduced padding to give more space */
+    text-align: center;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    -webkit-transition: .4s;
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    -webkit-transition: .4s;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: var(--primary-color); /* Use primary color for checked slider */
+}
+
+input:focus + .slider {
+    box-shadow: 0 0 1px var(--primary-color); /* Use primary color for focus */
+}
+
+input:checked + .slider:before {
+    -webkit-transform: translateX(26px);
+    -ms-transform: translateX(26px);
+    transform: translateX(26px);
+}
+
+/* Rounded sliders */
+.slider.round {
+    border-radius: 34px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+/* Ensure the dashboard container is positioned correctly for absolute children */
+#dashboard-container {
+    position: relative;
+    min-height: 600px; /* Or adjust as needed */
+    background-color: var(--bg-color); /* Use CSS variable */
+    transition: background-color 0.3s ease;
+    /* Dotted background */
+    background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+    background-size: 25px 25px; /* Adjust grid size as needed */
+}
+
+/* Styles for dark mode */
+body.dark-mode .card {
+    color: var(--text-color); /* Adjust text color for dark mode cards */
+}
+
+body.dark-mode .group-title {
+    color: var(--text-color);
+}
+
+body.dark-mode .value-display {
+    color: var(--secondary-color); /* Adjust value display color for dark mode */
+}
+
+body.dark-mode input[type="text"],
+body.dark-mode select {
+    background-color: var(--card-bg-color);
+    color: var(--text-color);
+    border-color: rgba(255, 255, 255, 0.2); /* Lighter border in dark mode */
+}
+
+body.dark-mode input[type="color"] {
+    filter: invert(0.9) hue-rotate(180deg); /* Adjust color picker appearance in dark mode */
+}
+
+/* Context Menu Styles */
+#contextMenu {
+    position: absolute;
+    background-color: var(--card-bg-color);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    padding: 0.5rem 0;
+    z-index: 1000; /* Ensure it's above other elements */
+    min-width: 120px;
+}
+
+#contextMenu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#contextMenu li a {
+    display: block;
+    padding: 0.5rem 1rem;
+    color: var(--text-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: background-color 0.2s ease;
+}
+
+#contextMenu li a:hover {
+    background-color: var(--bg-color); /* Lighter background on hover */
+}
+
+#contextMenu li a.text-red-600:hover {
+    background-color: #fee2e2; /* Red-100 for delete hover */
+}
+
+/* SCADA Specific Styles */
+#scada-main-pane {
+    position: relative;
+    background-color: var(--bg-color);
+    background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+    background-size: 25px 25px; /* Same grid size as dashboard */
+    overflow: hidden; /* Ensure elements don't go outside */
+}
+
+.scada-element {
+    background-color: var(--card-bg-color);
+    border: 1px solid var(--dot-color);
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.scada-element:active {
+    cursor: grabbing;
+}
+
+.scada-element .scada-value {
+    color: var(--primary-color); /* Use primary color for values */
+}
+
+.scada-element .scada-label {
+    color: var(--text-color); /* Use text color for labels */
+}
+
+/* Dark mode adjustments for SCADA elements */
+body.dark-mode .scada-element {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .scada-element .scada-value {
+    color: var(--secondary-color); /* Adjust value color for dark mode */
+}
+
+body.dark-mode .scada-element .scada-label {
+    color: var(--text-color); /* Adjust label color for dark mode */
+}
+
+body.dark-mode .scada-text input {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    border-color: rgba(255, 255, 255, 0.2);
+}
