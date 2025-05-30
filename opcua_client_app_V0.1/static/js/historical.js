@@ -1,22 +1,10 @@
-document.addEventListener('DOMContentLoaded', async () => {
-    const nodeSelect = document.getElementById('nodeSelect');
-    const timeRangeSelect = document.getElementById('timeRange');
-    const customRangeInputs = document.getElementById('customRangeInputs');
-    const startDateInput = document.getElementById('startDate');
-    const endDateInput = document.getElementById('endDate');
-    const fetchHistoryBtn = document.getElementById('fetchHistoryBtn');
-    const historicalChartCanvas = document.getElementById('historicalChart');
-    const noDataMessage = document.getElementById('noDataMessage');
+// Global chart instance to manage updating/destroying existing charts
+let historicalChart;
 
-    let historicalChartInstance = null; // To hold the Chart.js instance
+document.addEventListener('DOMContentLoaded', () => {
     const API_BASE = '/api';
 
-    /**
-     * Displays a temporary message box.
-     * This function is duplicated from main.js and scada.js for self-containment.
-     * @param {string} message - The message to display.
-     * @param {string} type - 'success', 'error', 'info'.
-     */
+    // --- Common Message Box Function (Copied from main.js) ---
     function showMessageBox(message, type = 'info') {
         const messageBox = document.getElementById('messageBox');
         const messageText = document.getElementById('messageText');
@@ -29,7 +17,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         messageText.textContent = message;
         messageBox.className = 'fixed bottom-4 right-4 p-4 rounded-lg shadow-xl z-20 transition-all duration-300 ease-in-out transform';
 
-        // Set background color based on type
+        // Reset classes
+        messageBox.classList.remove('bg-green-600', 'bg-red-600', 'bg-gray-800', 'hidden', 'translate-x-full');
+
         switch (type) {
             case 'success':
                 messageBox.classList.add('bg-green-600', 'text-white');
@@ -43,250 +33,204 @@ document.addEventListener('DOMContentLoaded', async () => {
                 break;
         }
 
-        messageBox.classList.remove('hidden', 'translate-x-full');
-        messageBox.classList.add('translate-x-0');
+        messageBox.classList.add('translate-x-0'); // Show
 
         setTimeout(() => {
             messageBox.classList.remove('translate-x-0');
-            messageBox.classList.add('translate-x-full');
+            messageBox.classList.add('translate-x-full'); // Hide
             setTimeout(() => {
                 messageBox.classList.add('hidden');
-                messageBox.className = 'fixed bottom-4 right-4 bg-gray-800 text-white p-4 rounded-lg shadow-xl z-20 hidden'; // Reset classes
-            }, 300); // Allow transition to finish
-        }, 3000); // Message disappears after 3 seconds
+                messageBox.className = 'fixed bottom-4 right-4 bg-gray-800 text-white p-4 rounded-lg shadow-xl z-20 hidden'; // Reset for next use
+            }, 300);
+        }, 3000);
     }
 
-    /**
-     * Fetches data from the API.
-     * @param {string} url - The API endpoint.
-     * @returns {Promise<Object>} - The JSON response.
-     */
-    async function fetchData(url) {
+    // --- Helper for API calls (Copied from main.js) ---
+    async function sendApiRequest(url, method, data = null) {
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            };
+            if (data) {
+                options.body = JSON.stringify(data);
             }
-            return await response.json();
+            const response = await fetch(url, options);
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || `HTTP error! status: ${response.status}`);
+            }
+            return result;
         } catch (error) {
-            console.error('Fetch error:', error);
-            showMessageBox(`Error fetching data: ${error.message}`, 'error');
+            console.error(`API ${method} request to ${url} error:`, error);
+            showMessageBox(`Error: ${error.message}`, 'error');
             return null;
         }
     }
 
+
+    // --- Logic specific to the Historical page ---
+    // These elements are specific to historical.html, so they are guaranteed to exist when this script runs
+    const historicalNodeSelect = document.getElementById('historicalNodeSelect');
+    const loadHistoricalDataBtn = document.getElementById('loadHistoricalData');
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    const historicalChartCanvas = document.getElementById('historicalChart');
+
+
     /**
-     * Populates the node selection dropdown with configured nodes.
+     * Populates the node dropdown on the historical data page.
+     * Fetches nodes from /api/nodes and adds them to the select element.
      */
-    async function populateNodeSelect() {
-        const config = await fetchData(`${API_BASE}/config`);
-        if (config && config.nodes) {
-            nodeSelect.innerHTML = '<option value="">-- Select a Node --</option>';
-            config.nodes.forEach(node => {
-                const option = document.createElement('option');
-                option.value = node.id; // Use the internal UUID
-                option.textContent = node.name;
-                nodeSelect.appendChild(option);
-            });
-        } else {
-            showMessageBox('Failed to load nodes for historical data.', 'error');
+    async function populateHistoricalNodeDropdown() {
+        historicalNodeSelect.innerHTML = '<option value="">Loading nodes...</option>'; // Set loading state
+
+        try {
+            const nodes = await sendApiRequest(`${API_BASE}/nodes`, 'GET');
+            
+            historicalNodeSelect.innerHTML = '<option value="">--Select a Node--</option>'; // Default empty option
+            if (nodes && nodes.length > 0) {
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id; // Use internal node ID
+                    option.textContent = node.name || node.node_ua_id; // Display name or UA ID
+                    historicalNodeSelect.appendChild(option);
+                });
+            } else {
+                historicalNodeSelect.innerHTML += '<option value="" disabled>No nodes configured.</option>';
+            }
+        } catch (error) {
+            console.error('Error fetching nodes for historical dropdown:', error);
+            historicalNodeSelect.innerHTML = '<option value="">Error loading nodes.</option>';
         }
     }
 
     /**
-     * Toggles visibility of custom date inputs based on time range selection.
+     * Loads historical data for the selected node and time range, then displays it on a Chart.js graph.
      */
-    function toggleCustomRangeInputs() {
-        if (timeRangeSelect.value === 'custom') {
-            customRangeInputs.classList.remove('hidden');
-        } else {
-            customRangeInputs.classList.add('hidden');
-        }
-    }
-
-    /**
-     * Fetches and displays historical data.
-     */
-    async function fetchAndRenderHistory() {
-        const selectedNodeId = nodeSelect.value;
-        const selectedTimeRange = timeRangeSelect.value;
-
+    async function loadHistoricalChart() {
+        const selectedNodeId = historicalNodeSelect.value;
         if (!selectedNodeId) {
-            showMessageBox('Please select a node.', 'info');
+            showMessageBox('Please select a node to view historical data.', 'info');
             return;
         }
 
-        let startTime = null;
-        let endTime = new Date(); // Default end time is now
+        const startTime = startDateInput.value; // YYYY-MM-DD format
+        const endTime = endDateInput.value;   // YYYY-MM-DD format
 
-        if (selectedTimeRange === 'custom') {
-            if (!startDateInput.value || !endDateInput.value) {
-                showMessageBox('Please enter both start and end dates for custom range.', 'info');
+        try {
+            let url = `${API_BASE}/historical_data?node_id=${selectedNodeId}`;
+            if (startTime) url += `&start_time=${startTime}T00:00:00`; // Append time for ISO format
+            if (endTime) url += `&end_time=${endTime}T23:59:59`;     // Append time for ISO format
+
+            const data = await sendApiRequest(url, 'GET');
+
+            if (!data || data.length === 0) {
+                showMessageBox('No historical data available for the selected node and time range. Try a different range or ensure subscriptions are active.', 'info');
+                // Clear existing chart if no data
+                if (historicalChart) {
+                    historicalChart.destroy();
+                    historicalChart = null;
+                }
                 return;
             }
-            startTime = new Date(startDateInput.value);
-            endTime = new Date(endDateInput.value);
-            // Adjust end time to end of day for date-only input
-            endTime.setHours(23, 59, 59, 999); 
 
-            if (startTime >= endTime) {
-                showMessageBox('Start date must be before end date.', 'error');
-                return;
+            // Prepare data for Chart.js
+            const labels = data.map(item => new Date(item.timestamp).toLocaleString());
+            const values = data.map(item => {
+                const numVal = parseFloat(item.value);
+                return isNaN(numVal) ? null : numVal;
+            });
+
+            const ctx = historicalChartCanvas.getContext('2d');
+
+            // Destroy existing chart instance before creating a new one
+            if (historicalChart) {
+                historicalChart.destroy();
             }
-        } else {
-            switch (selectedTimeRange) {
-                case 'last_hour':
-                    startTime = new Date(endTime.getTime() - 60 * 60 * 1000);
-                    break;
-                case 'last_6_hours':
-                    startTime = new Date(endTime.getTime() - 6 * 60 * 60 * 1000);
-                    break;
-                case 'last_24_hours':
-                    startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
-                    break;
-                case 'last_7_days':
-                    startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000);
-                    break;
-                default:
-                    startTime = new Date(0); // Epoch start if no specific range
-                    break;
-            }
-        }
 
-        const params = new URLSearchParams({
-            node_id: selectedNodeId,
-            start_time: startTime.toISOString(),
-            end_time: endTime.toISOString()
-        });
-
-        const historicalData = await fetchData(`${API_BASE}/historical_data?${params.toString()}`);
-
-        if (historicalData && historicalData.length > 0) {
-            noDataMessage.classList.add('hidden');
-            historicalChartCanvas.style.display = 'block';
-            renderChart(historicalData);
-        } else {
-            noDataMessage.classList.remove('hidden');
-            historicalChartCanvas.style.display = 'none';
-            if (historicalChartInstance) {
-                historicalChartInstance.destroy(); // Destroy existing chart if no data
-                historicalChartInstance = null;
-            }
-            showMessageBox('No historical data found for the selected node and time range.', 'info');
-        }
-    }
-
-    /**
-     * Renders the historical data using Chart.js.
-     * @param {Array<Object>} data - Array of historical data entries.
-     */
-    function renderChart(data) {
-        const labels = data.map(entry => {
-            const date = new Date(entry.timestamp);
-            // Format timestamp for display (e.g., "YYYY-MM-DD HH:MM:SS")
-            return date.toLocaleString();
-        });
-
-        // Attempt to parse values as numbers; if not, fall back to null or 0
-        const values = data.map(entry => {
-            const val = parseFloat(entry.value);
-            return isNaN(val) ? null : val; // Use null for non-numeric values
-        });
-
-        const ctx = historicalChartCanvas.getContext('2d');
-
-        if (historicalChartInstance) {
-            historicalChartInstance.destroy(); // Destroy existing chart before creating a new one
-        }
-
-        historicalChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Node Value',
-                    data: values,
-                    borderColor: getComputedStyle(document.documentElement).getPropertyValue('--primary-color'),
-                    backgroundColor: 'rgba(37, 99, 235, 0.2)', // primary-color with transparency
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointBackgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--primary-color'),
-                    fill: true,
-                    tension: 0.1 // Smooth curves
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false, // Allow canvas to resize freely
-                scales: {
-                    x: {
-                        type: 'category', // Use 'category' for string labels
-                        title: {
-                            display: true,
-                            text: 'Time',
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-color')
-                        },
-                        ticks: {
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-color')
-                        },
-                        grid: {
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--dot-color')
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Value',
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-color')
-                        },
-                        ticks: {
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-color')
-                        },
-                        grid: {
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--dot-color')
-                        }
-                    }
+            historicalChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `Value of ${data[0].node_name || data[0].node_ua_id}`,
+                        data: values,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
                 },
-                plugins: {
-                    legend: {
-                        display: true,
-                        labels: {
-                            color: getComputedStyle(document.documentElement).getPropertyValue('--text-color')
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            },
+                            grid: {
+                                color: 'rgba(200, 200, 200, 0.2)'
+                            }
                         }
                     },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                let label = context.dataset.label || '';
-                                if (label) {
-                                    label += ': ';
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: function(context) {
+                                    return `Time: ${context[0].label}`;
+                                },
+                                label: function(context) {
+                                    return `Value: ${context.parsed.y}`;
                                 }
-                                if (context.parsed.y !== null) {
-                                    label += context.parsed.y.toFixed(2); // Format numbers
-                                } else {
-                                    label += 'N/A'; // For non-numeric values
-                                }
-                                return label;
                             }
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
                     }
                 }
-            }
-        });
+            });
+
+        } catch (error) {
+            console.error('Error loading historical chart:', error);
+            showMessageBox('An error occurred while loading the chart. Check console for details.', 'error');
+        }
     }
 
-    // Event Listeners
-    if (timeRangeSelect) {
-        timeRangeSelect.addEventListener('change', toggleCustomRangeInputs);
-    }
-    if (fetchHistoryBtn) {
-        fetchHistoryBtn.addEventListener('click', fetchAndRenderHistory);
+    // --- Initialize Historical page ---
+    populateHistoricalNodeDropdown(); // Populate dropdown when page loads
+
+    if (loadHistoricalDataBtn) {
+        loadHistoricalDataBtn.addEventListener('click', loadHistoricalChart);
     }
 
-    // Initial setup
-    populateNodeSelect();
-    toggleCustomRangeInputs(); // Set initial visibility of custom range inputs
-    noDataMessage.classList.remove('hidden'); // Show no data message initially
-    historicalChartCanvas.style.display = 'none'; // Hide canvas initially
+    // Set default date range for convenience (last 24 hours)
+    const now = new Date();
+    if (endDateInput) {
+        endDateInput.value = now.toISOString().split('T')[0];
+    }
+    if (startDateInput) {
+        const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+        startDateInput.value = twentyFourHoursAgo.toISOString().split('T')[0];
+    }
 });

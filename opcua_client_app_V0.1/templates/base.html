@@ -3,216 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OPC UA Client Dashboard</title>
+    <title>OPC UA Client App</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
     <style>
-        /* Define CSS Variables for theming */
         :root {
-            --primary-color: #2563eb; /* blue-600 */
-            --secondary-color: #10b981; /* green-500 */
-            --text-color: #1f2937; /* gray-800 */
-            --bg-color: #f3f4f6; /* gray-100 */
-            --card-bg-color: #ffffff; /* white */
-            --font-size: 16px; /* Base font size */
-            --dot-color: #e5e7eb; /* Light gray for dots */
+            --primary-color: #2563eb; /* Blue-600 */
+            --secondary-color: #8b5cf6; /* Purple-500 */
+            --text-color: #1f2937; /* Gray-800 */
+            --bg-color: #f3f4f6; /* Gray-100 */
+            --card-bg-color: #ffffff; /* White */
+            --border-color: #d1d5db; /* Gray-300 */
+            --dot-color: #e5e7eb; /* Gray-200 for dots */
         }
-
-        /* Dark Mode styles */
         body.dark-mode {
-            --primary-color: #60a5fa; /* blue-400 */
-            --secondary-color: #34d399; /* emerald-400 */
-            --text-color: #e5e7eb; /* gray-200 */
-            --bg-color: #1f2937; /* gray-800 */
-            --card-bg-color: #374151; /* gray-700 */
-            --dot-color: #4b5563; /* Darker gray for dots in dark mode */
+            --primary-color: #60a5fa; /* Blue-400 */
+            --secondary-color: #a78bfa; /* Purple-400 */
+            --text-color: #e5e7eb; /* Gray-200 */
+            --bg-color: #1f2937; /* Gray-800 */
+            --card-bg-color: #374151; /* Gray-700 */
+            --border-color: #4b5563; /* Gray-600 */
+            --dot-color: #4b5563; /* Gray-600 for dots */
         }
-
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color); /* Use CSS variable */
-            color: var(--text-color); /* Use CSS variable */
-            font-size: var(--font-size); /* Apply base font size */
-            transition: background-color 0.3s ease, color 0.3s ease, font-size 0.3s ease;
+            font-family: "Inter", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
-        .card {
-            background-color: var(--card-bg-color); /* Use CSS variable */
-            border-radius: 0.75rem; /* rounded-xl */
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
-            transition: transform 0.1s ease-in-out, background-color 0.3s ease;
-            cursor: grab; /* Indicate draggable */
-            position: absolute; /* For absolute positioning with interact.js */
-            overflow: hidden; /* Hide overflow content */
-            user-select: none; /* Prevent text selection during drag */
-            -webkit-user-select: none; /* For Safari */
-            /* Removed resize: both; */
-        }
-        .card:active {
-            cursor: grabbing;
-        }
-        .group-section {
-            background-color: var(--secondary-color); /* Use CSS variable */
-            opacity: 0.2; /* Make it slightly transparent */
-            border: 2px dashed var(--primary-color); /* Use CSS variable */
-            border-radius: 0.75rem; /* rounded-xl */
+        header {
+            background-color: var(--card-bg-color);
+            border-bottom: 1px solid var(--border-color);
             padding: 1rem;
-            position: absolute;
-            /* Removed resize: both; */
-            overflow: hidden;
-            user-select: none; /* Prevent text selection during drag */
-            -webkit-user-select: none; /* For Safari */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             transition: background-color 0.3s ease, border-color 0.3s ease;
         }
-        .group-title {
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            cursor: text; /* Indicate editable */
-            color: var(--text-color); /* Ensure title color adapts */
-            user-select: text; /* Allow text selection within title */
-            -webkit-user-select: text; /* For Safari */
-        }
-        /* Update button styles to use variables */
-        button {
-            background-color: var(--primary-color);
-            transition: background-color 0.3s ease;
-        }
-        button:hover {
-            background-color: color-mix(in srgb, var(--primary-color) 80%, black); /* Slightly darker on hover */
-        }
-        .modal {
-            display: none; /* Hidden by default */
-            position: fixed; /* Stay in place */
-            z-index: 1000; /* Sit on top */
-            left: 0;
-            top: 0;
-            width: 100%; /* Full width */
-            height: 100%; /* Full height */
-            overflow: auto; /* Enable scroll if needed */
-            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
-            justify-content: center;
-            align-items: center;
-        }
-        .modal-content {
-            background-color: var(--card-bg-color); /* Use card background for modals */
-            margin: auto;
-            padding: 20px;
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            width: 90%; /* Responsive width */
-            max-width: 500px;
-            position: relative;
-            transition: background-color 0.3s ease;
-        }
-        .close-button {
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            font-size: 28px;
+        header h1 {
+            font-size: 1.5rem;
             font-weight: bold;
-            cursor: pointer;
-            color: var(--text-color); /* Use text color for close button */
+            color: var(--primary-color);
         }
-        .close-button:hover,
-        .close-button:focus {
-            color: black; /* Still black on hover for contrast */
-            text-decoration: none;
-            cursor: pointer;
+        header nav ul {
+            display: flex;
+            gap: 1rem;
         }
-        /* Custom switch styling */
-        .switch {
+        header nav ul li a {
+            color: var(--text-color);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+        header nav ul li a:hover,
+        header nav ul li a.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        main {
+            padding: 1.5rem;
+        }
+        footer {
+            margin-top: 2rem;
+            padding: 1rem;
+            text-align: center;
+            font-size: 0.875rem;
+            color: var(--text-color);
+            border-top: 1px solid var(--border-color);
+            background-color: var(--card-bg-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .chart-container {
             position: relative;
-            display: inline-block;
-            width: 60px;
-            height: 34px;
+            height: 400px; /* Fixed height for the chart */
+            width: 100%;
         }
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            align-items: center;
+            background-color: var(--card-bg-color);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        .slider {
-            position: absolute;
+        .controls label {
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .controls select, .controls input[type="date"], .controls button {
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.2s ease;
+        }
+        .controls button {
             cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            -webkit-transition: .4s;
-            transition: .4s;
-            border-radius: 34px;
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
         }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 26px; /* Adjusted height */
-            width: 26px;  /* Adjusted width */
-            left: 4px;    /* Adjusted left */
-            bottom: 4px;  /* Adjusted bottom */
-            background-color: white;
-            -webkit-transition: .4s;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: var(--primary-color); /* Use primary color for checked slider */
-        }
-        input:focus + .slider {
-            box-shadow: 0 0 1px var(--primary-color); /* Use primary color for focus */
-        }
-        input:checked + .slider:before {
-            -webkit-transform: translateX(26px);
-            -ms-transform: translateX(26px);
-            transform: translateX(26px);
-        }
-
-        /* New: Dropzone active state for SCADA pane */
-        .scada-dropzone-active {
-            border: 4px dashed var(--primary-color) !important; /* Make border more prominent */
-            background-color: rgba(var(--primary-color-rgb), 0.1) !important; /* Light tint */
-        }
-
-        /* New: Default background for SCADA elements */
-        .scada-element {
-            background-color: var(--card-bg-color); /* Default background for dropped elements */
+        .controls button:hover {
+            opacity: 0.9;
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col">
-    <header class="bg-blue-600 text-white p-4 shadow-md" style="background-color: var(--primary-color);">
-        <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold">OPC UA Client Dashboard</h1>
-            <nav>
-                <a href="/dashboard" class="text-white hover:text-blue-200 mr-4">Dashboard</a>
-                <a href="/scada" class="text-white hover:text-blue-200 mr-4">SCADA</a>
-                <a href="/historical" class="text-white hover:text-blue-200 mr-4">Historical</a> {# NEW LINK #}
-                <a href="/configure" class="text-white hover:text-blue-200">Configure</a>
-            </nav>
-        </div>
+<body class="bg-gray-100 text-gray-800">
+    <header class="bg-white shadow-sm">
+        <h1 class="text-blue-600">OPC UA Client App</h1>
+        <nav>
+            <ul class="flex space-x-4">
+                <li><a href="/" class="hover:bg-blue-600 hover:text-white px-3 py-2 rounded-md">Home</a></li>
+                <li><a href="/dashboard" class="hover:bg-blue-600 hover:text-white px-3 py-2 rounded-md">Dashboard</a></li>
+                <li><a href="/scada" class="hover:bg-blue-600 hover:text-white px-3 py-2 rounded-md">SCADA</a></li>
+                <li><a href="/historical" class="hover:bg-blue-600 hover:text-white px-3 py-2 rounded-md">Historical</a></li>
+                <li><a href="/configure" class="hover:bg-blue-600 hover:text-white px-3 py-2 rounded-md">Configure</a></li>
+            </ul>
+        </nav>
     </header>
 
-    <main class="flex-grow p-4">
+    <main class="p-6">
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="bg-gray-800 text-white p-4 text-center text-sm" style="background-color: var(--text-color);">
-        <div class="container mx-auto">
-            &copy; 2025 Trifty Texas. All rights reserved.
-        </div>
-    </footer>
+    <script src="/static/js/main.js"></script>
 
-    <div id="contextMenu" class="absolute z-50 bg-white rounded-lg shadow-lg py-1 hidden">
-        <ul class="text-gray-700">
-            <li><a href="#" id="contextEdit" class="block px-4 py-2 hover:bg-gray-100">Edit</a></li>
-            <li><a href="#" id="contextDelete" class="block px-4 py-2 hover:bg-gray-100 text-red-600">Delete</a></li>
-        </ul>
+    {% if request.path == '/configure' %}
+    <script src="/static/js/configure.js"></script>
+    {% elif request.path == '/dashboard' %}
+    <script src="/static/js/dashboard.js"></script>
+    {% elif request.path == '/historical' %}
+    <script src="/static/js/historical.js"></script>
+    {% elif request.path == '/scada' %}
+    <script src="/static/js/scada.js"></script>
+    {% endif %}
+
+    <div id="messageBox" class="fixed bottom-4 right-4 bg-gray-800 text-white p-4 rounded-lg shadow-xl z-20 hidden">
+        <p id="messageText"></p>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-    {% block scripts %}{% endblock %}
 </body>
 </html>

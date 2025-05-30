@@ -11,38 +11,83 @@ from asgiref.wsgi import WsgiToAsgi
 
 app = Flask(__name__)
 CONFIG_FILE = "config.json"
+SCADA_DATA_FILE = 'scada_data.json' # Ensure this is defined
 
 # Global variables for OPC UA client and connection status
 opcua_client = None
 opcua_connected = False
-opcua_endpoint = ""
+opcua_endpoint = "" # This will store the currently connected/desired endpoint URL
 connection_lock = asyncio.Lock() # To prevent concurrent connection attempts
+
+# Global variable to hold OPC UA client connection for subscriptions (not directly used in this snippet but kept for context)
+opcua_clients_for_sub = {}
+subscription_handlers = {}
+stop_polling_events = {}
+polling_threads = {}
+
+
+# Ensure config.json and scada_data.json exist with proper initial structure
+def initialize_config_files():
+    if not os.path.exists(CONFIG_FILE) or os.path.getsize(CONFIG_FILE) == 0:
+        print(f"Initializing {CONFIG_FILE} with default structure.")
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(
+                {"opcua_endpoint": "", "servers": [], "nodes": [], "groups": [], "layout": {}, "scada_layout": {}}, f, indent=2
+            )
+    
+    if not os.path.exists(SCADA_DATA_FILE) or os.path.getsize(SCADA_DATA_FILE) == 0:
+        print(f"Initializing {SCADA_DATA_FILE} with empty list.")
+        with open(SCADA_DATA_FILE, 'w') as f:
+            json.dump([], f, indent=4)
+
+# Call initialization at the start
+initialize_config_files()
 
 
 def load_config():
-    """Loads configuration from config.json."""
-    if not os.path.exists(CONFIG_FILE):
-        # Create a default config.json if it doesn't exist
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(
-                {"opcua_endpoint": "", "nodes": [], "groups": [], "layout": {}, "scada_layout": {}}, f # Added scada_layout
-            )
-    with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+    """Loads configuration from config.json. Ensures default keys exist."""
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        print(f"Warning: {CONFIG_FILE} not found or invalid. Re-initializing.")
+        initialize_config_files() # Re-initialize if file is bad
+        with open(CONFIG_FILE, "r") as f: # Try loading again
+            config = json.load(f)
 
+    # Ensure all expected top-level keys are present with default empty values if missing
+    config.setdefault("opcua_endpoint", "")
+    config.setdefault("servers", [])
+    config.setdefault("nodes", [])
+    config.setdefault("groups", [])
+    config.setdefault("layout", {})
+    config.setdefault("scada_layout", {})
+    return config
 
 def save_config(config):
     """Saves configuration to config.json."""
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
+def load_scada_data():
+    if os.path.exists(SCADA_DATA_FILE):
+        try:
+            with open(SCADA_DATA_FILE, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print(f"Warning: {SCADA_DATA_FILE} is empty or invalid JSON. Re-initializing.")
+            save_scada_data([]) # Reset to empty list
+            return []
+    return []
 
-config = load_config()
+def save_scada_data(data):
+    with open(SCADA_DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
 
 async def disconnect_opcua():
     """Disconnects the OPC UA client if it's connected."""
-    global opcua_client, opcua_connected
+    global opcua_client, opcua_connected, opcua_endpoint
     if opcua_client:
         try:
             print("Attempting to disconnect OPC UA client...")
@@ -53,6 +98,7 @@ async def disconnect_opcua():
         finally:
             opcua_client = None
             opcua_connected = False
+            opcua_endpoint = "" # Clear the endpoint on disconnect
 
 
 async def connect_opcua():
@@ -60,25 +106,32 @@ async def connect_opcua():
     global opcua_client, opcua_connected, opcua_endpoint
 
     async with connection_lock:
-        current_configured_endpoint = config.get("opcua_endpoint")
+        current_configured_endpoint = load_config().get("opcua_endpoint") # Load fresh config
 
-        if opcua_connected and opcua_endpoint == current_configured_endpoint and opcua_client:
-            print("OPC UA client already connected to the current endpoint.")
-            return True
-
-        if opcua_client and opcua_endpoint != current_configured_endpoint:
-            print("Endpoint changed or client exists, disconnecting old client.")
-            await disconnect_opcua()
-
-        opcua_endpoint = current_configured_endpoint
-        if not opcua_endpoint:
+        if not current_configured_endpoint:
             opcua_connected = False
             print("OPC UA Endpoint not configured.")
             return False
 
+        # If the global opcua_client is None OR the endpoint has changed,
+        # we need to create a new client instance.
+        if opcua_client is None or opcua_endpoint != current_configured_endpoint:
+            # If an old client exists, disconnect it first
+            if opcua_client:
+                print(f"Disconnecting from old endpoint {opcua_endpoint if opcua_endpoint else 'unknown'} before connecting to {current_configured_endpoint}")
+                try:
+                    await opcua_client.disconnect()
+                except Exception as e:
+                    print(f"Error during old client disconnect: {e}")
+            
+            print(f"Creating new OPC UA client for: {current_configured_endpoint}")
+            opcua_client = Client(url=current_configured_endpoint)
+            opcua_endpoint = current_configured_endpoint # Update global endpoint to the new one
+        else:
+            print(f"OPC UA client already initialized for {current_configured_endpoint}. Reusing existing client.")
+
         try:
-            print(f"Attempting to connect to OPC UA server: {opcua_endpoint}")
-            opcua_client = Client(url=opcua_endpoint)
+            print(f"Attempting to connect/reconnect to OPC UA server: {opcua_endpoint}")
             await opcua_client.connect()
             opcua_connected = True
             print(f"Successfully connected to OPC UA server: {opcua_endpoint}")
@@ -87,10 +140,12 @@ async def connect_opcua():
             print("OPC UA connection attempt cancelled.")
             opcua_connected = False
             opcua_client = None
+            opcua_endpoint = "" # Clear endpoint on failed connection
             return False
         except Exception as e:
             opcua_connected = False
             opcua_client = None
+            opcua_endpoint = "" # Clear endpoint on failed connection
             print(f"Failed to connect to OPC UA server at {opcua_endpoint}: {e}")
             return False
 
@@ -115,7 +170,8 @@ def opcua_required(f):
 @app.route("/")
 def index():
     """Redirects to configure or dashboard based on endpoint presence."""
-    if config.get("opcua_endpoint"):
+    current_config = load_config() # Load config here
+    if current_config.get("opcua_endpoint"):
         return redirect("/dashboard")
     return redirect("/configure")
 
@@ -123,15 +179,39 @@ def index():
 @app.route("/configure", methods=["GET", "POST"])
 async def configure():
     """Handles OPC UA endpoint configuration."""
-    global config
+    # Load config inside the function to ensure it's always fresh
+    config = load_config() 
     if request.method == "POST":
         new_endpoint = request.form.get("opcua_endpoint")
         if new_endpoint:
+            # Check if endpoint has changed before disconnecting
             if config.get("opcua_endpoint") != new_endpoint:
                 await disconnect_opcua()
+            
             config["opcua_endpoint"] = new_endpoint
+            
+            # --- NEW LOGIC: Add/Update this endpoint in the 'servers' list ---
+            server_exists = False
+            for server in config.get('servers', []):
+                if server.get('url') == new_endpoint:
+                    server_exists = True
+                    server['name'] = f"Server ({new_endpoint.split('//')[-1].split('/')[0]})" # Update name
+                    break
+            
+            if not server_exists:
+                # Generate a new ID for this server entry if it's new
+                new_server_id = str(uuid.uuid4())
+                config['servers'].append({
+                    "id": new_server_id,
+                    "name": f"Server ({new_endpoint.split('//')[-1].split('/')[0]})", # Simple name from URL
+                    "url": new_endpoint
+                })
+                print(f"Added new server entry to config['servers']: {new_endpoint}")
+            # --- END NEW LOGIC ---
+
             save_config(config)
-            await connect_opcua()
+            # Re-connect to the new/updated endpoint immediately
+            await connect_opcua() 
             return redirect("/dashboard")
         else:
             return render_template(
@@ -140,7 +220,7 @@ async def configure():
                 current_endpoint=config.get("opcua_endpoint", ""),
             )
     return render_template(
-        "configure.html", current_endpoint=config.get("opcua_endpoint", "")
+        "configure.html", current_endpoint=load_config().get("opcua_endpoint", "") # Load fresh config for GET
     )
 
 
@@ -158,47 +238,71 @@ async def scada():
     await connect_opcua()
     return render_template("scada.html")
 
+@app.route("/historical")
+async def historical():
+    """Renders the historical data page."""
+    await connect_opcua()
+    return render_template("historical.html")
+
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
     """Returns the current application configuration."""
-    return jsonify(config)
+    return jsonify(load_config()) # Always load fresh config
 
 
 @app.route("/api/nodes", methods=["GET"])
 def get_nodes():
     """Returns all configured OPC UA nodes."""
-    return jsonify(config["nodes"])
+    return jsonify(load_config()["nodes"]) # Load fresh config
 
 
 @app.route("/api/nodes", methods=["POST"])
-def add_or_update_node():
+async def add_or_update_node(): # Made async to allow await for config
     """Adds a new node or updates an existing one."""
     data = request.json
     node_id = data.get("id")
     name = data.get("name")
     node_ua_id = data.get("node_ua_id")
     node_type = data.get("type")
-    size = data.get("size") # New: Get size
+    size = data.get("size")
     group_id = data.get("groupId")
+    unit = data.get("unit") # Get unit
 
-    if not all([name, node_ua_id, node_type, size]): # New: size is required
-        return jsonify({"error": "Missing required fields."}), 400
+    if not all([name, node_ua_id, node_type, size]):
+        return jsonify({"error": "Missing required fields (name, node_ua_id, type, size)."}), 400
+
+    current_config = load_config() # Load fresh config
+
+    # Determine the server_id based on the currently configured opcua_endpoint
+    configured_endpoint_url = current_config.get("opcua_endpoint")
+    if not configured_endpoint_url:
+        return jsonify({"error": "OPC UA endpoint is not configured. Please configure it first."}), 400
+    
+    primary_server_id = None
+    for server in current_config.get("servers", []):
+        if server.get("url") == configured_endpoint_url:
+            primary_server_id = server.get("id")
+            break
+    
+    if not primary_server_id:
+        return jsonify({"error": "Could not find server ID for the configured OPC UA endpoint. Please re-save your endpoint."}), 400
 
     if node_id:
-        for i, node in enumerate(config["nodes"]):
+        for i, node in enumerate(current_config["nodes"]):
             if node["id"] == node_id:
-                config["nodes"][i].update(
+                current_config["nodes"][i].update(
                     {
                         "name": name,
                         "node_ua_id": node_ua_id,
                         "type": node_type,
-                        "size": size, # New: Update size
+                        "size": size,
                         "groupId": group_id,
+                        "unit": unit # Update unit
                     }
                 )
-                save_config(config)
-                return jsonify(config["nodes"][i])
+                save_config(current_config)
+                return jsonify(current_config["nodes"][i])
         return jsonify({"error": "Node not found."}), 404
     else:
         new_node = {
@@ -206,29 +310,35 @@ def add_or_update_node():
             "name": name,
             "node_ua_id": node_ua_id,
             "type": node_type,
-            "size": size, # New: Store size
+            "size": size,
             "groupId": group_id,
+            "server_id": primary_server_id, # Assign the primary server ID
+            "unit": unit, # Store unit
             "value": None,
             "x": 0,
             "y": 0,
-            # Removed width/height as they are derived from size on frontend
         }
-        config["nodes"].append(new_node)
-        save_config(config)
+        current_config["nodes"].append(new_node)
+        save_config(current_config)
         return jsonify(new_node), 201
 
 
 @app.route("/api/nodes/<node_id>", methods=["DELETE"])
 def delete_node(node_id):
     """Deletes a node by its UI ID."""
-    global config
+    config = load_config() # Load fresh config
     initial_len = len(config["nodes"])
     config["nodes"] = [node for node in config["nodes"] if node["id"] != node_id]
     if len(config["nodes"]) < initial_len:
         if node_id in config["layout"]:
             del config["layout"][node_id]
-        if node_id in config["scada_layout"]: # Also remove from SCADA layout
-            del config["scada_layout"][node_id]
+        # Ensure scada_layout is treated as an array of objects
+        if isinstance(config.get("scada_layout"), list):
+            config["scada_layout"] = [el for el in config["scada_layout"] if el.get("node_id") != node_id]
+        else: # Handle older object format if it exists
+            if node_id in config.get("scada_layout", {}):
+                del config["scada_layout"][node_id]
+
         save_config(config)
         return jsonify({"message": "Node deleted successfully."}), 200
     return jsonify({"error": "Node not found."}), 404
@@ -307,6 +417,7 @@ async def write_node_value(node_ua_id):
 @app.route("/api/layout", methods=["POST"])
 def save_layout():
     """Saves the current UI layout (positions, sizes of nodes and groups)."""
+    config = load_config() # Load fresh config
     data = request.json
     config["layout"] = data
     save_config(config)
@@ -316,12 +427,13 @@ def save_layout():
 @app.route("/api/scada_layout", methods=["GET"])
 def get_scada_layout():
     """Returns the current SCADA layout."""
-    return jsonify(config.get("scada_layout", {}))
+    return jsonify(load_config().get("scada_layout", [])) # Load fresh config, ensure it's an array
 
 @app.route("/api/scada_layout", methods=["POST"])
 def save_scada_layout():
     """Saves the current SCADA layout."""
-    data = request.json
+    config = load_config() # Load fresh config
+    data = request.json # Data is expected to be the entire array of SCADA elements
     config["scada_layout"] = data
     save_config(config)
     return jsonify({"message": "SCADA layout saved successfully."}), 200
@@ -330,7 +442,7 @@ def save_scada_layout():
 @app.route("/api/groups", methods=["GET"])
 def get_groups():
     """Returns all configured groups."""
-    return jsonify(config["groups"])
+    return jsonify(load_config()["groups"]) # Load fresh config
 
 
 @app.route("/api/groups", methods=["POST"])
@@ -339,41 +451,42 @@ def add_or_update_group():
     data = request.json
     group_id = data.get("id")
     title = data.get("title")
-    size = data.get("size") # New: Get size
+    size = data.get("size")
 
-    if not all([title, size]): # New: size is required
+    if not all([title, size]):
         return jsonify({"error": "Group title and size are required."}), 400
 
+    current_config = load_config() # Load fresh config
+
     if group_id:
-        for i, group in enumerate(config["groups"]):
+        for i, group in enumerate(current_config["groups"]):
             if group["id"] == group_id:
-                config["groups"][i].update(
+                current_config["groups"][i].update(
                     {
                         "title": title,
-                        "size": size # New: Update size
+                        "size": size
                     }
                 )
-                save_config(config)
-                return jsonify(config["groups"][i])
+                save_config(current_config)
+                return jsonify(current_config["groups"][i])
         return jsonify({"error": "Group not found."}), 404
     else:
         new_group = {
             "id": str(uuid.uuid4()),
             "title": title,
-            "size": size, # New: Store size
+            "size": size,
             "x": 0,
             "y": 0,
-            # Removed width/height as they are derived from size on frontend
         }
-        config["groups"].append(new_group)
-        save_config(config)
+        current_config["groups"].append(new_group)
+        save_config(current_config)
         return jsonify(new_group), 201
 
 
 @app.route("/api/groups/<group_id>", methods=["DELETE"])
 def delete_group(group_id):
     """Deletes a group by its ID."""
-    global config
+    config = load_config() # Load fresh config
     initial_len = len(config["groups"])
     config["groups"] = [group for group in config["groups"] if group["id"] != group_id]
     if len(config["groups"]) < initial_len:
@@ -385,6 +498,43 @@ def delete_group(group_id):
         save_config(config)
         return jsonify({"message": "Group deleted successfully."}), 200
     return jsonify({"error": "Group not found."}), 404
+
+@app.route('/api/historical_data', methods=['GET'])
+def get_historical_data():
+    node_id = request.args.get('node_id')
+    start_time_str = request.args.get('start_time')
+    end_time_str = request.args.get('end_time')
+
+    if not node_id:
+        return jsonify({"error": "node_id parameter is required"}), 400
+
+    historical_data = load_scada_data()
+    
+    filtered_data = []
+    from datetime import datetime
+    for entry in historical_data:
+        if entry.get('node_id') == node_id:
+            try:
+                entry_time = datetime.fromisoformat(entry['timestamp'])
+                
+                if start_time_str:
+                    start_time = datetime.fromisoformat(start_time_str)
+                    if entry_time < start_time:
+                        continue
+                if end_time_str:
+                    end_time = datetime.fromisoformat(end_time_str)
+                    if entry_time > end_time:
+                        continue
+                
+                filtered_data.append(entry)
+            except ValueError:
+                print(f"Warning: Could not parse timestamp for entry: {entry}")
+                continue
+    
+    filtered_data.sort(key=lambda x: datetime.fromisoformat(x['timestamp']))
+
+    return jsonify(filtered_data), 200
+
 
 # Create an ASGI-compatible application from your Flask app
 asgi_app = WsgiToAsgi(app)
